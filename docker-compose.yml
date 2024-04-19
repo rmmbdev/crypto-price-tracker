@@ -1,0 +1,93 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15.3-alpine3.18
+    container_name: postgres
+    restart: always
+    # Enable WAL logical replication at startup
+    command: postgres -c wal_level=logical
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    environment:
+      - POSTGRES_DB=crypto
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - /tmp/postgres:/var/lib/postgresql/data/
+    ports:
+      - "0.0.0.0:5432:5432"
+
+  rabbit:
+    image: rabbitmq:3.13-management-alpine
+    container_name: rabbit
+    restart: always
+    hostname: alpha
+    ports:
+      - "0.0.0.0:5672:5672"
+      - "0.0.0.0:15672:15672"
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 30s
+      retries: 3
+    volumes:
+      - /tmp/rabbitmq:/var/lib/rabbitmq
+
+  debezium:
+    image: quay.io/debezium/server:2.6
+    container_name: debezium
+    restart: always
+    healthcheck:
+      test: curl http://debezium:8080/q/health || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      db:
+          condition: service_healthy
+      rabbit:
+          condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./debezium_conf:/debezium/conf
+
+  migrator:
+    build:
+      context: .
+    container_name: migrator
+    restart: on-failure
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=crypto
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=postgres
+    depends_on:
+      - db
+    command: ./migrator
+
+  updater:
+    build:
+      context: .
+    container_name: updater
+    restart: always
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=crypto
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=postgres
+      - SOURCE_ADDRESS=ws.coincap.io
+      - SOURCE_PATH=/prices
+      - SOURCE_QUERY=assets=bitcoin,ethereum,tron
+    depends_on:
+      - migrator
+      - db
+      - debezium
+      - rabbit
+    command: ./updater
