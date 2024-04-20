@@ -36,6 +36,8 @@ services:
       retries: 3
     volumes:
       - /tmp/rabbitmq:/var/lib/rabbitmq
+      - ./rabbitmq/advanced.config:/etc/rabbitmq/advanced.config:ro
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
 
   debezium:
     image: quay.io/debezium/server:2.6
@@ -48,9 +50,9 @@ services:
       retries: 5
     depends_on:
       db:
-          condition: service_healthy
+        condition: service_healthy
       rabbit:
-          condition: service_healthy
+        condition: service_healthy
     ports:
       - "8080:8080"
     volumes:
